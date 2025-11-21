@@ -45,29 +45,24 @@ export default function App() {
 
     // Simulate analysis delay
     setTimeout(() => {
-      const wastePercent = Math.random() * 0.5 + 0.05;
-      const wasteLevel = classifyWaste(wastePercent);
+      const wasteLevel = 'Moderate';
+      const points = 5;
       
-      const points = wasteLevel === 'None' ? 15 : wasteLevel === 'Minimal' ? 10 : wasteLevel === 'Moderate' ? 5 : wasteLevel === 'Significant' ? 2 : 1;
-      
-      const tips = [];
-      if (wasteLevel === 'Significant' || wasteLevel === 'Most Left') {
-        tips.push('Try taking smaller portions next time');
-        tips.push('You can always go back for seconds!');
-      } else if (wasteLevel === 'None') {
-        tips.push('Amazing job! You\'re a SmartPlate champion! 🏆');
-      }
+      const tips = [
+        '💡 Try taking a smaller portion next time',
+        '💡 You can always go back for seconds!'
+      ];
 
       const result = { 
         dish: selectedDish, 
         waste: wasteLevel, 
-        wastePercent: (wastePercent * 100).toFixed(1),
+        wastePercent: '35',
         points, 
         tips,
         impact: {
-          weight: (wastePercent * 0.5).toFixed(3),
-          cost: (wastePercent * 3.50).toFixed(2),
-          co2: (wastePercent * 1.2).toFixed(2)
+          weight: '0.175',
+          cost: '1.23',
+          co2: '0.35'
         }
       };
       
@@ -137,28 +132,47 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Image Upload */}
+                {/* Image Upload with Drag & Drop */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-3">Upload photo of leftovers</label>
-                  <label className="block cursor-pointer">
-                    <div className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.add('border-emerald-500', 'bg-emerald-50');
+                    }}
+                    onDragLeave={(e) => {
+                      e.currentTarget.classList.remove('border-emerald-500', 'bg-emerald-50');
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove('border-emerald-500', 'bg-emerald-50');
+                      const file = e.dataTransfer.files[0];
+                      if (file && file.type.startsWith('image/')) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setUploadedImage(reader.result);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
                       uploadedImage ? 'border-emerald-400 bg-emerald-50' : 'border-gray-300 hover:border-emerald-400'
-                    }`}>
-                      {uploadedImage ? (
-                        <div className="space-y-3">
-                          <img src={uploadedImage} alt="Uploaded" className="w-full h-40 object-cover rounded-lg mx-auto" />
-                          <p className="text-sm text-emerald-600 font-medium">Photo uploaded ✓</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <Upload size={32} className="mx-auto text-gray-400" />
-                          <p className="text-gray-700 font-medium">Click to upload photo</p>
-                          <p className="text-xs text-gray-500">or drag and drop</p>
-                        </div>
-                      )}
-                    </div>
-                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                  </label>
+                    }`}
+                  >
+                    {uploadedImage ? (
+                      <div className="space-y-3">
+                        <img src={uploadedImage} alt="Uploaded" className="w-full h-40 object-cover rounded-lg mx-auto" />
+                        <p className="text-sm text-emerald-600 font-medium">Photo uploaded ✓</p>
+                      </div>
+                    ) : (
+                      <label className="cursor-pointer space-y-2">
+                        <Upload size={32} className="mx-auto text-gray-400" />
+                        <p className="text-gray-700 font-medium">Drag image here or click to upload</p>
+                        <p className="text-xs text-gray-500">JPG, PNG supported</p>
+                        <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                      </label>
+                    )}
+                  </div>
                 </div>
 
                 {/* Analyze Button */}
