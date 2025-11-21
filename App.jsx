@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Camera, Upload, Award, Trash2, X } from 'lucide-react';
+import { Upload, Award, Trash2 } from 'lucide-react';
 
 const DISHES = ['Pizza', 'Pasta', 'Salad Bar', 'Burger', 'Chicken Tenders', 'Tacos', 'Soup', 'Stir Fry', 'Sandwich', 'Mac & Cheese'];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('scan');
+  const [showScanner, setShowScanner] = useState(false);
   const [selectedDish, setSelectedDish] = useState('');
   const [uploadedImage, setUploadedImage] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
@@ -27,12 +27,22 @@ export default function App() {
     }
   };
 
-  const classifyWaste = (wastePercent) => {
-    if (wastePercent <= 0.1) return 'None';
-    if (wastePercent <= 0.25) return 'Minimal';
-    if (wastePercent <= 0.4) return 'Moderate';
-    if (wastePercent <= 0.6) return 'Significant';
-    return 'Most Left';
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setUploadedImage(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const analyzeImage = () => {
@@ -43,22 +53,16 @@ export default function App() {
 
     setIsAnalyzing(true);
 
-    // Simulate analysis delay
     setTimeout(() => {
-      const wasteLevel = 'Moderate';
-      const points = 5;
-      
-      const tips = [
-        '💡 Try taking a smaller portion next time',
-        '💡 You can always go back for seconds!'
-      ];
-
       const result = { 
         dish: selectedDish, 
-        waste: wasteLevel, 
+        waste: 'Moderate', 
         wastePercent: '35',
-        points, 
-        tips,
+        points: 5,
+        tips: [
+          '💡 Try taking a smaller portion next time',
+          '💡 You can always go back for seconds!'
+        ],
         impact: {
           weight: '0.175',
           cost: '1.23',
@@ -67,14 +71,14 @@ export default function App() {
       };
       
       setAnalysisResult(result);
-      setUserPoints(prev => prev + points);
+      setUserPoints(prev => prev + 5);
       setRecentScans(prev => [
         { 
           id: Date.now(), 
           dish: selectedDish, 
-          waste: wasteLevel, 
+          waste: 'Moderate', 
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
-          points 
+          points: 5
         }, 
         ...prev.slice(0, 9)
       ]);
@@ -86,6 +90,11 @@ export default function App() {
     setUploadedImage(null);
     setSelectedDish('');
     setAnalysisResult(null);
+  };
+
+  const closeScan = () => {
+    setShowScanner(false);
+    resetScan();
   };
 
   return (
@@ -105,10 +114,61 @@ export default function App() {
         </header>
 
         {/* Main Content */}
-        <div className="space-y-6">
-          {/* Scanner Card */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm">
-            <h2 className="text-xl font-bold text-gray-800 mb-6">Scan Your Tray</h2>
+        {!showScanner ? (
+          <div className="space-y-6">
+            {/* Scan Button */}
+            <button
+              onClick={() => setShowScanner(true)}
+              className="w-full py-12 bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-2xl font-semibold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all flex flex-col items-center gap-4"
+            >
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+                <Upload size={32} />
+              </div>
+              <span>Scan Your Tray</span>
+              <span className="text-sm opacity-80">Earn points & reduce waste</span>
+            </button>
+
+            {/* Recent Scans */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm">
+              <h3 className="font-semibold text-gray-800 mb-4">Recent Scans</h3>
+              {recentScans.length === 0 ? (
+                <p className="text-center text-gray-400 py-6">No scans yet today</p>
+              ) : (
+                <div className="space-y-2">
+                  {recentScans.map(scan => (
+                    <div key={scan.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                      <div>
+                        <p className="font-medium text-gray-800">{scan.dish}</p>
+                        <p className="text-xs text-gray-500">{scan.time}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-medium ${
+                          scan.waste === 'None' ? 'text-emerald-600' :
+                          scan.waste === 'Minimal' ? 'text-teal-600' :
+                          scan.waste === 'Moderate' ? 'text-amber-600' : 'text-red-500'
+                        }`}>
+                          {scan.waste}
+                        </p>
+                        <p className="text-xs text-amber-600">+{scan.points} pts</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Scanner Screen */
+          <div className="bg-white rounded-2xl p-6 shadow-sm space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-800">Scan Your Tray</h2>
+              <button
+                onClick={closeScan}
+                className="text-gray-500 hover:text-gray-700 text-2xl"
+              >
+                ✕
+              </button>
+            </div>
 
             {!analysisResult ? (
               <div className="space-y-6">
@@ -132,46 +192,37 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Image Upload with Drag & Drop */}
+                {/* Drag & Drop Upload */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">Upload photo of leftovers</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">Upload leftovers photo</label>
                   <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.currentTarget.classList.add('border-emerald-500', 'bg-emerald-50');
-                    }}
-                    onDragLeave={(e) => {
-                      e.currentTarget.classList.remove('border-emerald-500', 'bg-emerald-50');
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.currentTarget.classList.remove('border-emerald-500', 'bg-emerald-50');
-                      const file = e.dataTransfer.files[0];
-                      if (file && file.type.startsWith('image/')) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setUploadedImage(reader.result);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
                     className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
-                      uploadedImage ? 'border-emerald-400 bg-emerald-50' : 'border-gray-300 hover:border-emerald-400'
+                      uploadedImage ? 'border-emerald-400 bg-emerald-50' : 'border-gray-300 hover:border-emerald-400 hover:bg-emerald-50'
                     }`}
                   >
-                    {uploadedImage ? (
-                      <div className="space-y-3">
-                        <img src={uploadedImage} alt="Uploaded" className="w-full h-40 object-cover rounded-lg mx-auto" />
-                        <p className="text-sm text-emerald-600 font-medium">Photo uploaded ✓</p>
-                      </div>
-                    ) : (
-                      <label className="cursor-pointer space-y-2">
-                        <Upload size={32} className="mx-auto text-gray-400" />
-                        <p className="text-gray-700 font-medium">Drag image here or click to upload</p>
-                        <p className="text-xs text-gray-500">JPG, PNG supported</p>
-                        <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                      </label>
-                    )}
+                    <label className="block cursor-pointer">
+                      {uploadedImage ? (
+                        <div className="space-y-3">
+                          <img src={uploadedImage} alt="Uploaded" className="w-full h-40 object-cover rounded-lg mx-auto" />
+                          <p className="text-sm text-emerald-600 font-medium">✓ Photo uploaded</p>
+                          <p className="text-xs text-gray-500">Click to change image</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <Upload size={32} className="mx-auto text-gray-400" />
+                          <p className="text-gray-700 font-medium">Drag image here or click</p>
+                          <p className="text-xs text-gray-500">JPG, PNG supported</p>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </label>
                   </div>
                 </div>
 
@@ -200,19 +251,8 @@ export default function App() {
             ) : (
               /* Results */
               <div className="space-y-6 text-center">
-                <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center ${
-                  analysisResult.waste === 'None' ? 'bg-emerald-100' :
-                  analysisResult.waste === 'Minimal' ? 'bg-teal-100' :
-                  analysisResult.waste === 'Moderate' ? 'bg-amber-100' : 'bg-red-100'
-                }`}>
-                  {analysisResult.waste === 'None' ? (
-                    <Award size={40} className="text-emerald-600" />
-                  ) : (
-                    <Trash2 size={40} className={
-                      analysisResult.waste === 'Minimal' ? 'text-teal-600' :
-                      analysisResult.waste === 'Moderate' ? 'text-amber-600' : 'text-red-500'
-                    } />
-                  )}
+                <div className="w-20 h-20 mx-auto rounded-full flex items-center justify-center bg-amber-100">
+                  <Trash2 size={40} className="text-amber-600" />
                 </div>
 
                 <div>
@@ -238,15 +278,13 @@ export default function App() {
                   </div>
                 </div>
 
-                {analysisResult.tips.length > 0 && (
-                  <div className={`p-4 rounded-xl text-left ${analysisResult.waste === 'None' ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-                    {analysisResult.tips.map((tip, i) => (
-                      <p key={i} className={`text-sm ${analysisResult.waste === 'None' ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        {analysisResult.waste === 'None' ? '🎉' : '💡'} {tip}
-                      </p>
-                    ))}
-                  </div>
-                )}
+                <div className="bg-amber-50 p-4 rounded-xl text-left">
+                  {analysisResult.tips.map((tip, i) => (
+                    <p key={i} className="text-sm text-amber-700">
+                      {tip}
+                    </p>
+                  ))}
+                </div>
 
                 <button
                   onClick={resetScan}
@@ -257,36 +295,7 @@ export default function App() {
               </div>
             )}
           </div>
-
-          {/* Recent Scans */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm">
-            <h3 className="font-semibold text-gray-800 mb-4">Recent Scans</h3>
-            {recentScans.length === 0 ? (
-              <p className="text-center text-gray-400 py-6">No scans yet today</p>
-            ) : (
-              <div className="space-y-2">
-                {recentScans.map(scan => (
-                  <div key={scan.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                    <div>
-                      <p className="font-medium text-gray-800">{scan.dish}</p>
-                      <p className="text-xs text-gray-500">{scan.time}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-sm font-medium ${
-                        scan.waste === 'None' ? 'text-emerald-600' :
-                        scan.waste === 'Minimal' ? 'text-teal-600' :
-                        scan.waste === 'Moderate' ? 'text-amber-600' : 'text-red-500'
-                      }`}>
-                        {scan.waste}
-                      </p>
-                      <p className="text-xs text-amber-600">+{scan.points} pts</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
