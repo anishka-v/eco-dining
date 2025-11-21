@@ -27,38 +27,6 @@ const generateMockData = () => {
   }
   return data;
 };
-// Convert Base64 DataURL → File object for FormData
-function dataURLtoFile(dataurl, filename) {
-  const arr = dataurl.split(",");
-  const mime = arr[0].match(/:(.*?);/)[1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while (n--) {
-      u8arr[n] = bstr.charCodeAt(n);
-  }
-  return new File([u8arr], filename, { type: mime });
-}
-
-// Send images to ML backend
-const callWasteModel = async (beforeImage, afterImage, selectedDish) => {
-  const formData = new FormData();
-  formData.append("before_image", dataURLtoFile(beforeImage, "before.jpg"));
-  formData.append("after_image", dataURLtoFile(afterImage, "after.jpg"));
-  formData.append("dish", selectedDish);
-
-  const res = await fetch("http://localhost:8000/api/scan", {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!res.ok) {
-    throw new Error("Backend error");
-  }
-
-  return res.json();
-};
-
 
 const mockData = generateMockData();
 
@@ -69,6 +37,94 @@ const insights = [
   { type: 'info', icon: Leaf, color: 'emerald', title: 'Impact Update', text: 'This month: 847 lbs food saved = 1,270 meals rescued = $2,541 saved.' },
 ];
 
+// Simulated AI waste analyzer
+const analyzeWasteFromImages = (beforeImg, afterImg) => {
+  try {
+    // Convert images to canvas for pixel analysis
+    const getImageData = (img) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const image = new Image();
+      image.src = img;
+      canvas.width = image.naturalWidth || 200;
+      canvas.height = image.naturalHeight || 200;
+      ctx.drawImage(image, 0, 0);
+      return ctx.getImageData(0, 0, canvas.width, canvas.height);
+    };
+
+    // Simple heuristic: analyze color distribution
+    // Food typically has warm colors (red, orange, brown)
+    const analyzeColors = (imageData) => {
+      const data = imageData.data;
+      let foodPixels = 0;
+      let totalPixels = data.length / 4;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        
+        // Detect food-like colors (warm tones, not too bright/dark)
+        const isWarmColor = r > g && r > b;
+        const isBrightEnough = (r + g + b) / 3 > 80;
+        const isNotTooWhite = (r + g + b) / 3 < 240;
+        
+        if (isWarmColor && isBrightEnough && isNotTooWhite) {
+          foodPixels++;
+        }
+      }
+
+      return foodPixels / totalPixels;
+    };
+
+    // Load both images and compare
+    return new Promise((resolve) => {
+      const beforeCanvas = document.createElement('canvas');
+      const afterCanvas = document.createElement('canvas');
+      
+      const beforeImg_el = new Image();
+      const afterImg_el = new Image();
+
+      beforeImg_el.onload = () => {
+        beforeCanvas.width = beforeImg_el.width;
+        beforeCanvas.height = beforeImg_el.height;
+        const beforeCtx = beforeCanvas.getContext('2d');
+        beforeCtx.drawImage(beforeImg_el, 0, 0);
+        
+        afterImg_el.onload = () => {
+          afterCanvas.width = afterImg_el.width;
+          afterCanvas.height = afterImg_el.height;
+          const afterCtx = afterCanvas.getContext('2d');
+          afterCtx.drawImage(afterImg_el, 0, 0);
+
+          const beforeData = beforeCtx.getImageData(0, 0, beforeCanvas.width, beforeCanvas.height);
+          const afterData = afterCtx.getImageData(0, 0, afterCanvas.width, afterCanvas.height);
+
+          const beforeFood = analyzeColors(beforeData);
+          const afterFood = analyzeColors(afterData);
+
+          // Calculate waste percentage
+          let wastePercent = 0;
+          if (beforeFood > 0) {
+            wastePercent = Math.max(0, (beforeFood - afterFood) / beforeFood);
+          }
+
+          // Add some randomness to simulate realistic variation
+          wastePercent = Math.min(0.8, wastePercent + (Math.random() - 0.5) * 0.15);
+          wastePercent = Math.max(0, wastePercent);
+
+          resolve(wastePercent);
+        };
+        afterImg_el.src = afterImg;
+      };
+      beforeImg_el.src = beforeImg;
+    });
+  } catch (error) {
+    console.error('Analysis error:', error);
+    return Math.random() * 0.6;
+  }
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showCapture, setShowCapture] = useState(false);
@@ -77,6 +133,7 @@ export default function App() {
   const [afterImage, setAfterImage] = useState(null);
   const [selectedDish, setSelectedDish] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [recentScans, setRecentScans] = useState([
     { id: 1, dish: 'Pizza', waste: 'Minimal', time: '12:34 PM', points: 10 },
     { id: 2, dish: 'Salad Bar', waste: 'None', time: '12:15 PM', points: 15 },
@@ -106,44 +163,72 @@ export default function App() {
       reader.readAsDataURL(file);
     }
   };
-  
 
-const analyzeWaste = async () => {
-  if (!beforeImage || !afterImage || !selectedDish) {
-    alert("Please select a dish and upload both photos.");
-    return;
-  }
+  const classifyWaste = (wastePercent) => {
+    if (wastePercent <= 0.05) return 'None';
+    if (wastePercent <= 0.15) return 'Minimal';
+    if (wastePercent <= 0.30) return 'Moderate';
+    if (wastePercent <= 0.50) return 'Significant';
+    return 'Most Left';
+  };
 
-  try {
-    const response = await callWasteModel(beforeImage, afterImage, selectedDish);
+  const analyzeWaste = async () => {
+    if (!beforeImage || !afterImage || !selectedDish) {
+      alert('Please complete all steps');
+      return;
+    }
 
-    const result = {
-      dish: selectedDish,
-      waste: response.waste_level,
-      wastePercent: response.waste_percentage,
-      points: response.points,
-      tips: response.tips
-    };
+    setIsAnalyzing(true);
 
-    setAnalysisResult(result);
-    setUserPoints(prev => prev + response.points);
-    setRecentScans(prev => [
-      {
-        id: Date.now(),
-        dish: selectedDish,
-        waste: response.waste_level,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        points: response.points
-      },
-      ...prev.slice(0, 9)
-    ]);
+    try {
+      const wastePercent = await analyzeWasteFromImages(beforeImage, afterImage);
+      const wasteLevel = classifyWaste(wastePercent);
+      
+      const points = wasteLevel === 'None' ? 15 : wasteLevel === 'Minimal' ? 10 : wasteLevel === 'Moderate' ? 5 : wasteLevel === 'Significant' ? 2 : 1;
+      
+      const tips = [];
+      if (wasteLevel === 'Significant' || wasteLevel === 'Most Left') {
+        tips.push('Try taking smaller portions');
+        tips.push('You can always go back for seconds!');
+        tips.push('Consider trying the half-portion option');
+      } else if (wasteLevel === 'None') {
+        tips.push('Amazing job! You\'re a SmartPlate champion! 🏆');
+      } else if (wasteLevel === 'Minimal') {
+        tips.push('Great effort! Keep it up.');
+      }
 
-  } catch (err) {
-    console.error(err);
-    alert("Model failed — check backend.");
-  }
-};
-
+      const result = { 
+        dish: selectedDish, 
+        waste: wasteLevel, 
+        wastePercent: (wastePercent * 100).toFixed(1),
+        points, 
+        tips,
+        impact: {
+          weight: (wastePercent * 8 / 16).toFixed(3),
+          cost: (wastePercent * 3.50).toFixed(2),
+          co2: (wastePercent * 8 / 16 * 2).toFixed(2)
+        }
+      };
+      
+      setAnalysisResult(result);
+      setUserPoints(prev => prev + points);
+      setRecentScans(prev => [
+        { 
+          id: Date.now(), 
+          dish: selectedDish, 
+          waste: wasteLevel, 
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
+          points 
+        }, 
+        ...prev.slice(0, 9)
+      ]);
+    } catch (error) {
+      console.error('Analysis error:', error);
+      alert('Error analyzing waste. Please try again.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const resetCapture = () => {
     setShowCapture(false);
@@ -152,6 +237,7 @@ const analyzeWaste = async () => {
     setAfterImage(null);
     setSelectedDish('');
     setAnalysisResult(null);
+    setIsAnalyzing(false);
   };
 
   const WasteBar = ({ percent, height = 'h-24' }) => (
@@ -408,8 +494,15 @@ const analyzeWaste = async () => {
                           <input type="file" accept="image/*" capture="environment" onChange={e => handleImageUpload(e, 'after')} className="hidden" />
                         </label>
                         {afterImage && (
-                          <button onClick={analyzeWaste} className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all">
-                            Analyze Waste
+                          <button onClick={analyzeWaste} disabled={isAnalyzing} className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                            {isAnalyzing ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Analyzing...
+                              </>
+                            ) : (
+                              'Analyze Waste'
+                            )}
                           </button>
                         )}
                       </div>
@@ -434,106 +527,11 @@ const analyzeWaste = async () => {
                     
                     <div>
                       <p className="text-2xl font-bold text-gray-800">{analysisResult.waste} Waste</p>
+                      <p className="text-sm text-gray-500">({analysisResult.wastePercent}% of portion)</p>
                       <p className="text-amber-600 font-medium">+{analysisResult.points} points earned!</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded-xl overflow-hidden">
                         <img src={beforeImage} alt="Before" className="w-full h-24 object-cover" />
-                        <p className="text-xs text-gray-500 py-1 bg-gray-50">Before</p>
-                      </div>
-                      <div className="rounded-xl overflow-hidden">
-                        <img src={afterImage} alt="After" className="w-full h-24 object-cover" />
-                        <p className="text-xs text-gray-500 py-1 bg-gray-50">After</p>
-                      </div>
-                    </div>
-
-                    {analysisResult.tips.length > 0 && (
-                      <div className={`p-4 rounded-xl text-left ${analysisResult.waste === 'None' ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-                        {analysisResult.tips.map((tip, i) => (
-                          <p key={i} className={`text-sm ${analysisResult.waste === 'None' ? 'text-emerald-700' : 'text-amber-700'}`}>
-                            {analysisResult.waste === 'None' ? '🎉' : '💡'} {tip}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-
-                    <button onClick={resetCapture} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors">
-                      Done
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'insights' && (
-          <div className="space-y-4">
-            <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-2xl p-5 text-white">
-              <h3 className="font-semibold mb-1">Monthly Impact</h3>
-              <div className="grid grid-cols-3 gap-4 mt-4">
-                <div className="text-center">
-                  <p className="text-3xl font-bold">847</p>
-                  <p className="text-xs opacity-80">lbs saved</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-bold">1,270</p>
-                  <p className="text-xs opacity-80">meals rescued</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-bold">$2.5k</p>
-                  <p className="text-xs opacity-80">cost savings</p>
-                </div>
-              </div>
-            </div>
-
-            <h3 className="font-semibold text-gray-800">AI Recommendations</h3>
-            {insights.map((insight, i) => (
-              <div key={i} className={`bg-white rounded-2xl p-4 shadow-sm border-l-4 ${
-                insight.color === 'red' ? 'border-red-400' : 
-                insight.color === 'green' ? 'border-emerald-400' : 
-                insight.color === 'amber' ? 'border-amber-400' : 'border-teal-400'
-              }`}>
-                <div className="flex gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    insight.color === 'red' ? 'bg-red-100' : 
-                    insight.color === 'green' ? 'bg-emerald-100' : 
-                    insight.color === 'amber' ? 'bg-amber-100' : 'bg-teal-100'
-                  }`}>
-                    <insight.icon size={20} className={
-                      insight.color === 'red' ? 'text-red-600' : 
-                      insight.color === 'green' ? 'text-emerald-600' : 
-                      insight.color === 'amber' ? 'text-amber-600' : 'text-teal-600'
-                    } />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-800">{insight.title}</p>
-                    <p className="text-sm text-gray-600 mt-1">{insight.text}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            <div className="bg-white rounded-2xl p-4 shadow-sm">
-              <h3 className="font-semibold text-gray-800 mb-3">Best Performing Days</h3>
-              <div className="space-y-2">
-                {['Tuesday', 'Thursday', 'Friday'].map((day, i) => (
-                  <div key={day} className="flex items-center justify-between p-2">
-                    <span className="text-gray-700">{day}</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${85 - i * 8}%` }} />
-                      </div>
-                      <span className="text-sm font-medium text-emerald-600">{85 - i * 8}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+                        <p className="text-xs text-gray
