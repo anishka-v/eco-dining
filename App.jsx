@@ -27,6 +27,38 @@ const generateMockData = () => {
   }
   return data;
 };
+// Convert Base64 DataURL → File object for FormData
+function dataURLtoFile(dataurl, filename) {
+  const arr = dataurl.split(",");
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
+
+// Send images to ML backend
+const callWasteModel = async (beforeImage, afterImage, selectedDish) => {
+  const formData = new FormData();
+  formData.append("before_image", dataURLtoFile(beforeImage, "before.jpg"));
+  formData.append("after_image", dataURLtoFile(afterImage, "after.jpg"));
+  formData.append("dish", selectedDish);
+
+  const res = await fetch("http://localhost:8000/api/scan", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error("Backend error");
+  }
+
+  return res.json();
+};
+
 
 const mockData = generateMockData();
 
@@ -74,22 +106,44 @@ export default function App() {
       reader.readAsDataURL(file);
     }
   };
+  
 
-  const analyzeWaste = () => {
-    const wasteLevel = WASTE_LEVELS[Math.floor(Math.random() * 5)];
-    const points = wasteLevel === 'None' ? 15 : wasteLevel === 'Minimal' ? 10 : wasteLevel === 'Moderate' ? 5 : 2;
-    const result = { dish: selectedDish, waste: wasteLevel, points, tips: [] };
-    
-    if (wasteLevel === 'Significant' || wasteLevel === 'Most Left') {
-      result.tips = ['Try taking smaller portions', 'You can always go back for seconds!', 'Consider trying the half-portion option'];
-    } else if (wasteLevel === 'None') {
-      result.tips = ['Amazing job! You\'re a SmartPlate champion! 🏆'];
-    }
-    
+const analyzeWaste = async () => {
+  if (!beforeImage || !afterImage || !selectedDish) {
+    alert("Please select a dish and upload both photos.");
+    return;
+  }
+
+  try {
+    const response = await callWasteModel(beforeImage, afterImage, selectedDish);
+
+    const result = {
+      dish: selectedDish,
+      waste: response.waste_level,
+      wastePercent: response.waste_percentage,
+      points: response.points,
+      tips: response.tips
+    };
+
     setAnalysisResult(result);
-    setUserPoints(prev => prev + points);
-    setRecentScans(prev => [{ id: Date.now(), dish: selectedDish, waste: wasteLevel, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), points }, ...prev.slice(0, 9)]);
-  };
+    setUserPoints(prev => prev + response.points);
+    setRecentScans(prev => [
+      {
+        id: Date.now(),
+        dish: selectedDish,
+        waste: response.waste_level,
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        points: response.points
+      },
+      ...prev.slice(0, 9)
+    ]);
+
+  } catch (err) {
+    console.error(err);
+    alert("Model failed — check backend.");
+  }
+};
+
 
   const resetCapture = () => {
     setShowCapture(false);
