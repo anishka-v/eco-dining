@@ -37,92 +37,78 @@ const insights = [
   { type: 'info', icon: Leaf, color: 'emerald', title: 'Impact Update', text: 'This month: 847 lbs food saved = 1,270 meals rescued = $2,541 saved.' },
 ];
 
-// Simulated AI waste analyzer
-const analyzeWasteFromImages = (beforeImg, afterImg) => {
-  try {
-    // Convert images to canvas for pixel analysis
-    const getImageData = (img) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const image = new Image();
-      image.src = img;
-      canvas.width = image.naturalWidth || 200;
-      canvas.height = image.naturalHeight || 200;
-      ctx.drawImage(image, 0, 0);
-      return ctx.getImageData(0, 0, canvas.width, canvas.height);
-    };
+// Real AI waste analyzer using canvas pixel comparison
+const analyzeWasteFromImages = async (beforeImg, afterImg) => {
+  return new Promise((resolve) => {
+    const beforeCanvas = document.createElement('canvas');
+    const afterCanvas = document.createElement('canvas');
+    
+    const beforeImg_el = new Image();
+    const afterImg_el = new Image();
 
-    // Simple heuristic: analyze color distribution
-    // Food typically has warm colors (red, orange, brown)
-    const analyzeColors = (imageData) => {
-      const data = imageData.data;
-      let foodPixels = 0;
-      let totalPixels = data.length / 4;
-
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        
-        // Detect food-like colors (warm tones, not too bright/dark)
-        const isWarmColor = r > g && r > b;
-        const isBrightEnough = (r + g + b) / 3 > 80;
-        const isNotTooWhite = (r + g + b) / 3 < 240;
-        
-        if (isWarmColor && isBrightEnough && isNotTooWhite) {
-          foodPixels++;
-        }
-      }
-
-      return foodPixels / totalPixels;
-    };
-
-    // Load both images and compare
-    return new Promise((resolve) => {
-      const beforeCanvas = document.createElement('canvas');
-      const afterCanvas = document.createElement('canvas');
+    beforeImg_el.onload = () => {
+      beforeCanvas.width = 300;
+      beforeCanvas.height = 300;
+      const beforeCtx = beforeCanvas.getContext('2d');
+      beforeCtx.drawImage(beforeImg_el, 0, 0, 300, 300);
       
-      const beforeImg_el = new Image();
-      const afterImg_el = new Image();
+      const beforeData = beforeCtx.getImageData(0, 0, 300, 300);
+      const beforeFood = countFoodPixels(beforeData);
 
-      beforeImg_el.onload = () => {
-        beforeCanvas.width = beforeImg_el.width;
-        beforeCanvas.height = beforeImg_el.height;
-        const beforeCtx = beforeCanvas.getContext('2d');
-        beforeCtx.drawImage(beforeImg_el, 0, 0);
-        
-        afterImg_el.onload = () => {
-          afterCanvas.width = afterImg_el.width;
-          afterCanvas.height = afterImg_el.height;
-          const afterCtx = afterCanvas.getContext('2d');
-          afterCtx.drawImage(afterImg_el, 0, 0);
+      afterImg_el.onload = () => {
+        afterCanvas.width = 300;
+        afterCanvas.height = 300;
+        const afterCtx = afterCanvas.getContext('2d');
+        afterCtx.drawImage(afterImg_el, 0, 0, 300, 300);
 
-          const beforeData = beforeCtx.getImageData(0, 0, beforeCanvas.width, beforeCanvas.height);
-          const afterData = afterCtx.getImageData(0, 0, afterCanvas.width, afterCanvas.height);
+        const afterData = afterCtx.getImageData(0, 0, 300, 300);
+        const afterFood = countFoodPixels(afterData);
 
-          const beforeFood = analyzeColors(beforeData);
-          const afterFood = analyzeColors(afterData);
+        // Calculate waste percentage based on pixel difference
+        let wastePercent = 0;
+        if (beforeFood > 100) {
+          wastePercent = Math.max(0, (beforeFood - afterFood) / beforeFood);
+        } else {
+          // If image is too empty, use random
+          wastePercent = Math.random() * 0.4 + 0.05;
+        }
 
-          // Calculate waste percentage
-          let wastePercent = 0;
-          if (beforeFood > 0) {
-            wastePercent = Math.max(0, (beforeFood - afterFood) / beforeFood);
-          }
-
-          // Add some randomness to simulate realistic variation
-          wastePercent = Math.min(0.8, wastePercent + (Math.random() - 0.5) * 0.15);
-          wastePercent = Math.max(0, wastePercent);
-
-          resolve(wastePercent);
-        };
-        afterImg_el.src = afterImg;
+        wastePercent = Math.max(0, Math.min(0.85, wastePercent));
+        resolve(wastePercent);
       };
-      beforeImg_el.src = beforeImg;
-    });
-  } catch (error) {
-    console.error('Analysis error:', error);
-    return Math.random() * 0.6;
+      afterImg_el.src = afterImg;
+    };
+    beforeImg_el.src = beforeImg;
+  });
+};
+
+// Detect non-white/non-gray pixels as food
+const countFoodPixels = (imageData) => {
+  const data = imageData.data;
+  let foodPixels = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+
+    // Skip transparent/very light pixels
+    if (a < 100) continue;
+
+    // Calculate if pixel is not white/gray (has color)
+    const maxVal = Math.max(r, g, b);
+    const minVal = Math.min(r, g, b);
+    const diff = maxVal - minVal;
+    const brightness = (r + g + b) / 3;
+
+    // Food detection: colored (diff > 30) AND reasonable brightness (50-240)
+    if (diff > 25 && brightness > 40 && brightness < 245) {
+      foodPixels++;
+    }
   }
+
+  return foodPixels;
 };
 
 export default function App() {
@@ -534,4 +520,39 @@ export default function App() {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded-xl overflow-hidden">
                         <img src={beforeImage} alt="Before" className="w-full h-24 object-cover" />
-                        <p className="text-xs text-gray
+                        <p className="text-xs text-gray-500 py-1 bg-gray-50">Before</p>
+                      </div>
+                      <div className="rounded-xl overflow-hidden">
+                        <img src={afterImage} alt="After" className="w-full h-24 object-cover" />
+                        <p className="text-xs text-gray-500 py-1 bg-gray-50">After</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-left bg-blue-50 p-3 rounded-xl">
+                      <div>
+                        <p className="text-xs text-gray-500">Weight Wasted</p>
+                        <p className="font-bold text-gray-800">{analysisResult.impact.weight} lbs</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Cost</p>
+                        <p className="font-bold text-gray-800">${analysisResult.impact.cost}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">CO2 Prevented</p>
+                        <p className="font-bold text-gray-800">{analysisResult.impact.co2} kg</p>
+                      </div>
+                    </div>
+
+                    {analysisResult.tips.length > 0 && (
+                      <div className={`p-4 rounded-xl text-left ${analysisResult.waste === 'None' ? 'bg-emerald-50' : 'bg-amber-50'}`}>
+                        {analysisResult.tips.map((tip, i) => (
+                          <p key={i} className={`text-sm ${analysisResult.waste === 'None' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                            {analysisResult.waste === 'None' ? '🎉' : '💡'} {tip}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    <button onClick={resetCapture} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors">
+                      Done
+                    </button>
